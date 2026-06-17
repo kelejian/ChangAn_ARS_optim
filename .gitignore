@@ -1,0 +1,9 @@
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+###
+1_乘员损伤结构化数据_长安.xlsx
+###
+reference_doc/
