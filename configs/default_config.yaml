@@ -1,0 +1,52 @@
+# 全流程随机种子，用于保证数据划分和代理模型训练结果可复现。
+seed: 2026
+
+# 数据配置均相对于项目根目录解析。
+data:
+  # 输入 Excel 需要包含 schema.py 中定义的输入字段和连续损伤指标字段。
+  xlsx_path: "data/raw/injury_data.xlsx"
+  # 样本编号字段会在数据准备阶段统一映射为内部字段 case_id。
+  case_id_column: "case_id"
+  # 高速工况阈值用于汇总 40 km/h 以上样本的预测降损效果。
+  high_speed_threshold: 40.0
+
+# test_size 和 val_size 均按全数据集比例理解；当前默认采用 train/val/test = 8:1:1。
+split:
+  test_size: 0.10
+  val_size: 0.10
+
+# 使用 ExtraTrees 作为结构化代理模型，参数保持轻量以便快速完成多轮迭代。
+surrogate_model:
+  # 树数量越大通常越稳定，但训练和推理时间也会增加。
+  n_estimators: 80
+  # 叶节点最小样本数用于抑制过拟合，同时保留局部响应差异。
+  min_samples_leaf: 2
+  # 每次节点划分考虑的特征数，sqrt 是表格树模型中较常用的稳健设置。
+  max_features: "sqrt"
+  # -1 表示使用可用 CPU 并行训练。
+  n_jobs: -1
+
+optimization:
+  # 近邻数用于计算候选方案相对训练分布的偏离程度。
+  neighbor_k: 5
+  # 调试时可设置为较小整数以缩短运行时间；null 表示评估完整测试集。
+  max_eval_cases: null
+  # 座椅位置候选在原始值附近做粗网格搜索，单位沿用输入数据字段。
+  delta_pos_offsets: [-60.0, 0.0, 60.0]
+  # 靠背角候选在原始值附近做粗网格搜索，单位沿用输入数据字段。
+  recline_angle_offsets: [-0.12, 0.0, 0.12]
+  # 总评分越低表示候选方案越优，权重用于平衡降损、严重损伤概率、置信度和动作幅度。
+  score_weights:
+    expected_mais: 1.0
+    p_mais_ge3: 0.5
+    uncertainty: 0.2
+    ood: 0.2
+    action_cost: 0.05
+
+output:
+  # 每次运行会在该目录下生成一个独立结果目录。
+  root_dir: "outputs"
+  # 未指定 run_name 时，输出目录名为 run_prefix 加时间戳。
+  run_prefix: "run"
+  # 从高速工况中挑选若干典型案例，便于后续人工复核或仿真复验。
+  typical_case_count: 10

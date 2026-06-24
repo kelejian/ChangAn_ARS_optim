@@ -1,9 +1,10 @@
 .vscode/
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.pyd
-###
-1_乘员损伤结构化数据_长安.xlsx
-###
+outputs/
+*.joblib
+data/raw/
 reference_doc/
