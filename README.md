@@ -40,10 +40,39 @@ python run_pipeline.py --config configs/default_config.yaml
 
 - `data_check_summary.yaml`
 - `surrogate_model_metrics.yaml`，其中包含 `train / val / test / test_high_speed` 四个切片的代理模型指标
+- `surrogate_predictions.csv`，其中包含代理模型逐样本真实值、预测值和派生 AIS/MAIS 明细
 - `evaluation_results.csv`
 - `summary_report.yaml`
 - `typical_high_speed_cases.csv`
 - `models/surrogate_model_bundle.joblib`
+
+## 结果绘图
+
+### 代理模型结果图绘制
+可以基于 `surrogate_predictions.csv` 绘制代理模型评估图，默认输出 `test` 与 `test_high_speed` 两个切片的回归散点图和分类混淆矩阵：
+
+```bash
+python plot_surrogate_results.py --pred_csv outputs/<run_dir>/surrogate_predictions.csv
+```
+
+脚本会在结果目录下生成 `plots_surrogate_model/`。如需指定切片，可以使用：
+
+```bash
+python plot_surrogate_results.py --pred_csv outputs/<run_dir>/surrogate_predictions.csv --data_scope train val test test_high_speed
+```
+### 寻优评估结果图绘制
+
+可以基于 `evaluation_results.csv` 绘制单 case 的 Base/Opt 对比图：
+
+```bash
+python plot_eval_cases.py --eval_csv outputs/<run_dir>/evaluation_results.csv --topn_risk 10 --high_speed_only
+```
+
+脚本会在结果目录下生成 `plots_eval_cases/`，每个 case 包含控制参数、连续损伤响应、AIS/MAIS 和严重损伤风险四张图。也可以显式指定 case：
+
+```bash
+python plot_eval_cases.py --eval_csv outputs/<run_dir>/evaluation_results.csv --case_ids 181 249
+```
 
 ## 完成口径
 

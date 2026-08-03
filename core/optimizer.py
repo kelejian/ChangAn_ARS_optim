@@ -234,7 +234,7 @@ def _build_result_row(
 def _recommendation_flag(row: Dict[str, object]) -> Tuple[str, int]:
     """依据预测降损和置信度给出推荐标志。"""
     improves = int(row["Reduction_MAIS"]) >= 1 or float(row["Reduction_P_MAIS_GE3"]) > 0.05
-    confident = float(row["Opt_Uncertainty"]) <= 0.75 and float(row["Opt_OODScore"]) <= 2.5
+    confident = float(row["Opt_Uncertainty"]) <= 0.75 and float(row["Opt_OODScore"]) <= 1.5
     if improves and confident:
         return "推荐", 0
     if improves:

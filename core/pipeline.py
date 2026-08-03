@@ -14,7 +14,11 @@ import yaml
 
 from core.data import load_raw_table, make_data_summary, prepare_dataset, split_dataset
 from core.optimizer import optimize_cases, summarize_optimization
-from core.surrogate_model import evaluate_surrogate_model_bundle, train_surrogate_model_bundle
+from core.surrogate_model import (
+    build_surrogate_prediction_table,
+    evaluate_surrogate_model_bundle,
+    train_surrogate_model_bundle,
+)
 
 
 def load_config(path: Path) -> Dict[str, object]:
@@ -72,6 +76,16 @@ def run_pipeline(config: Dict[str, object], project_dir: Path, run_name: Optiona
             "available": False,
             "reason": f"test split 中不存在 velocity >= {high_speed_threshold:g} km/h 的样本。",
         }
+    surrogate_predictions = build_surrogate_prediction_table(
+        surrogate_bundle,
+        {
+            "train": train_df,
+            "val": val_df,
+            "test": test_df,
+            "test_high_speed": high_speed_test_df,
+        },
+        neighbor_k=neighbor_k,
+    )
 
     # 优化仅在测试集上执行，输出 Base 与 Opt 的预测对比结果。
     eval_results = optimize_cases(test_df, surrogate_bundle, config)
@@ -89,6 +103,7 @@ def run_pipeline(config: Dict[str, object], project_dir: Path, run_name: Optiona
     _write_yaml(output_dir / "data_check_summary.yaml", data_summary)
     _write_yaml(output_dir / "split_info.yaml", split_info)
     _write_yaml(output_dir / "surrogate_model_metrics.yaml", surrogate_metrics)
+    surrogate_predictions.to_csv(output_dir / "surrogate_predictions.csv", index=False, encoding="utf-8-sig")
     joblib.dump(surrogate_bundle, output_dir / "models" / "surrogate_model_bundle.joblib")
     eval_results.to_csv(output_dir / "evaluation_results.csv", index=False, encoding="utf-8-sig")
     _write_yaml(output_dir / "summary_report.yaml", summary_report)

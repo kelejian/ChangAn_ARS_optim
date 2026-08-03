@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Mapping
 
 import numpy as np
 import pandas as pd
@@ -183,6 +183,52 @@ def evaluate_surrogate_model_bundle(
         y_pred = pred[pred_col].to_numpy(dtype=int)
         metrics[target] = _classification_metrics(y_true, y_pred, labels=list(range(6)))
     return metrics
+
+
+def build_surrogate_prediction_table(
+    bundle: SurrogateModelBundle,
+    data_slices: Mapping[str, pd.DataFrame],
+    neighbor_k: int = 5,
+) -> pd.DataFrame:
+    """导出代理模型逐样本预测明细，供后续绘制散点图和混淆矩阵使用。"""
+    tables: List[pd.DataFrame] = []
+    context_columns = [
+        "case_id",
+        "input_velocity",
+        "input_angle",
+        "input_overlap",
+        "input_overlap_signed",
+        "input_swing_angle",
+        "input_type_num",
+    ]
+    for data_scope, df in data_slices.items():
+        if len(df) == 0:
+            continue
+        current = df.reset_index(drop=True)
+        pred = bundle.predict(current, neighbor_k=neighbor_k).reset_index(drop=True)
+        table = current[context_columns].copy()
+        table.insert(0, "data_scope", str(data_scope))
+
+        for target in CONTINUOUS_TARGETS:
+            short_name = target.replace("output_", "")
+            table[f"true_{short_name}"] = current[target].to_numpy(dtype=float)
+            table[f"pred_{short_name}"] = pred[f"pred_{short_name}"].to_numpy(dtype=float)
+
+        for target in AIS_TARGETS:
+            short_name = target.replace("output_", "")
+            table[f"true_{short_name}"] = current[target].to_numpy(dtype=int)
+            table[f"pred_{short_name}"] = pred[f"pred_{short_name}"].to_numpy(dtype=int)
+
+        table["true_MAIS"] = current["output_MAIS"].to_numpy(dtype=int)
+        table["pred_MAIS"] = pred["pred_MAIS"].to_numpy(dtype=int)
+        table["true_MAIS_GE3"] = (table["true_MAIS"].to_numpy(dtype=int) >= 3).astype(int)
+        table["pred_MAIS_GE3"] = (table["pred_MAIS"].to_numpy(dtype=int) >= 3).astype(int)
+        table["pred_P_MAIS_GE3"] = pred["pred_P_MAIS_GE3"].to_numpy(dtype=float)
+        table["pred_uncertainty"] = pred["pred_uncertainty"].to_numpy(dtype=float)
+        table["pred_ood_score"] = pred["pred_ood_score"].to_numpy(dtype=float)
+        tables.append(table)
+
+    return pd.concat(tables, ignore_index=True)
 
 
 def _classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, labels: List[int]) -> Dict[str, object]:
