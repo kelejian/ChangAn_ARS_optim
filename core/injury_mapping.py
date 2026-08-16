@@ -1,6 +1,6 @@
 """连续损伤指标与 AIS/MAIS 的经验公式映射。
 
-本模块依据 reference_doc/changan_Injury_Criteria_AIS_Cal_original.py 中的计算逻辑实现。代理模型直接预测 Amax、Dmax、HIC 和 Nij，CTI 由 Amax、Dmax 与乘员体型参数按参考公式派生，AIS 与 MAIS 再由 HIC、CTI、Nij 映射得到。
+本模块依据 reference/reference material/changan_Injury_Criteria_AIS_Cal_original.py 中的计算逻辑实现。代理模型直接预测 Amax、Dmax、HIC 和 Nij，CTI 由 Amax、Dmax 与乘员体型参数按参考公式派生，AIS 与 MAIS 再由 HIC、CTI、Nij 映射得到。
 """
 
 from __future__ import annotations

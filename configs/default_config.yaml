@@ -15,16 +15,66 @@ split:
   test_size: 0.10
   val_size: 0.10
 
-# 使用 ExtraTrees 作为结构化代理模型，参数保持轻量以便快速完成多轮迭代。
+# 四个基础损伤响应采用目标特异回归器，配置来源于固定划分的五轮验证实验。
 surrogate_model:
-  # 树数量越大通常越稳定，但训练和推理时间也会增加。
-  n_estimators: 80
-  # 叶节点最小样本数用于抑制过拟合，同时保留局部响应差异。
-  min_samples_leaf: 2
-  # 每次节点划分考虑的特征数，sqrt 是表格树模型中较常用的稳健设置。
-  max_features: "sqrt"
   # -1 表示使用可用 CPU 并行训练。
   n_jobs: -1
+  target_models:
+    # Amax 使用训练集折外预测确定的两模型凸组合，以降低单一随机树的方差。
+    output_Amax:
+      - type: "extra_trees"
+        weight: 0.6794586481
+        n_estimators: 600
+        min_samples_leaf: 2
+        max_features: 0.7
+      - type: "random_forest"
+        weight: 0.3205413519
+        n_estimators: 600
+        min_samples_leaf: 2
+        max_features: 0.7
+    # Dmax 对梯度提升的平滑局部拟合响应更好。
+    output_Dmax:
+      - type: "xgboost"
+        weight: 1.0
+        n_estimators: 650
+        max_depth: 5
+        learning_rate: 0.02
+        min_child_weight: 8.0
+        subsample: 0.85
+        colsample_bytree: 0.85
+        reg_alpha: 0.05
+        reg_lambda: 5.0
+    output_HIC:
+      - type: "hist_gradient_boosting"
+        weight: 1.0
+        learning_rate: 0.05
+        max_iter: 500
+        max_leaf_nodes: 15
+        min_samples_leaf: 12
+        l2_regularization: 0.5
+    output_Nij:
+      - type: "hist_gradient_boosting"
+        weight: 0.5282163082
+        learning_rate: 0.05
+        max_iter: 500
+        max_leaf_nodes: 31
+        min_samples_leaf: 12
+        l2_regularization: 0.5
+      - type: "xgboost"
+        weight: 0.4717836918
+        n_estimators: 650
+        max_depth: 5
+        learning_rate: 0.02
+        min_child_weight: 8.0
+        subsample: 0.85
+        colsample_bytree: 0.85
+        reg_alpha: 0.05
+        reg_lambda: 5.0
+  # 随机树集合只用于统一估计四个目标的局部预测离散程度，不参与最终点预测。
+  uncertainty_model:
+    n_estimators: 160
+    min_samples_leaf: 2
+    max_features: "sqrt"
 
 optimization:
   # 近邻数用于计算候选方案相对训练分布的偏离程度。

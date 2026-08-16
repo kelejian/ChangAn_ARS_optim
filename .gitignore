@@ -7,4 +7,6 @@ __pycache__/
 outputs/
 *.joblib
 data/raw/
-reference_doc/
+reference/
+experiments/
+reports/

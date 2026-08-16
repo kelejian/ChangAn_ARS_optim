@@ -61,7 +61,7 @@ def prepare_dataset(raw_df: pd.DataFrame, case_id_column: str = "case_id") -> pd
     df["input_kneeairbag"] = df["input_kneeairbag"].astype(int)
     df["input_ll_level"] = df["input_ll_level"].astype(int)
     df["input_type_num"] = df["input_type_num"].astype(int)
-    # 带符号偏置比例用于表达主驾侧和非主驾侧重叠差异，同时保留原始编码作为类别特征。
+    # 原始偏置编码只承担数据接口映射；代理模型使用带符号比例统一表达重叠幅度与主驾侧方向。
     df["input_overlap_signed"] = df["input_overlap"].map(OVERLAP_SIGNED_MAP).astype(float)
     calculated_cti = calculate_cti(df["output_Amax"], df["output_Dmax"], df["input_type_num"])
     if not np.allclose(calculated_cti, df["output_CTI"].to_numpy(dtype=float), rtol=0.0, atol=1e-8):

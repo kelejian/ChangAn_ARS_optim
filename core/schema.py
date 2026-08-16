@@ -35,7 +35,6 @@ CONTROL_COLUMNS = [
 FEATURE_COLUMNS = [
     "input_velocity",
     "input_angle",
-    "input_overlap",
     "input_overlap_signed",
     "input_swing_angle",
     "input_type_num",
@@ -57,7 +56,6 @@ CONTINUOUS_FEATURES = [
 ]
 
 CATEGORICAL_FEATURES = [
-    "input_overlap",
     "input_type_num",
     "input_airbag",
     "input_kneeairbag",

@@ -5,9 +5,9 @@
 当前代码目标是形成最小可运行闭环：
 
 1. 读取 `data/raw/injury_data.xlsx`。
-2. 训练轻量化结构化损伤风险代理模型，直接预测 `Amax`、`Dmax`、`HIC`、`Nij` 等基础连续损伤响应，并按参考公式派生 `CTI`。
+2. 训练目标特异的结构化损伤风险代理模型，直接预测 `Amax`、`Dmax`、`HIC`、`Nij` 等基础连续损伤响应，并按参考公式派生 `CTI`。
 3. 对每个测试样本执行分层逐点参数寻优。
-4. 按 `reference_doc/changan_Injury_Criteria_AIS_Cal_original.py` 中的公式逻辑将 `HIC`、派生 `CTI` 和 `Nij` 映射为 AIS/MAIS，输出 Base 与 Opt 的预测降损对比、置信度指标和典型高速复核 case。
+4. 按 `reference/reference material/changan_Injury_Criteria_AIS_Cal_original.py` 中的公式逻辑将 `HIC`、派生 `CTI` 和 `Nij` 映射为 AIS/MAIS，输出 Base 与 Opt 的预测降损对比、置信度指标和典型高速复核 case。
 
 ## 目录结构
 
@@ -16,9 +16,11 @@
 ├── run_pipeline.py        # 主运行入口
 ├── configs/               # 运行配置
 ├── core/                  # 算法核心源码
+├── experiments/           # 代理模型迭代、诊断脚本和可执行 Notebook
+├── reports/               # 代理模型实验技术报告
 ├── data/raw/              # 原始结构化仿真数据
 ├── outputs/               # 本地运行输出
-└── reference_doc/         # 参考材料
+└── reference/             # 参考材料
 ```
 
 ## 运行方式
@@ -45,6 +47,19 @@ python run_pipeline.py --config configs/default_config.yaml
 - `summary_report.yaml`
 - `typical_high_speed_cases.csv`
 - `models/surrogate_model_bundle.joblib`
+
+## 代理模型设计
+
+代理模型使用带符号连续比例 `input_overlap_signed` 表达碰撞偏置幅度与主驾侧方向，原始 `input_overlap` 编码只用于数据接口映射和结果审计。四个直接目标分别采用经固定验证集选择的回归器：`Amax` 使用 ExtraTrees 与 RandomForest 加权，`Dmax` 使用 XGBoost，`HIC` 使用 HistGradientBoosting，`Nij` 使用 HistGradientBoosting 与 XGBoost 加权。融合权重由训练集五折折外预测确定。
+
+五轮迭代和瓶颈诊断可通过以下命令复现：
+
+```bash
+python -m experiments.run_surrogate_iterations --output_dir outputs/surrogate_model_optimization_20260804
+python -m experiments.diagnose_surrogate_limits
+```
+
+已执行的实验 Notebook 位于 `experiments/surrogate_model_optimization.ipynb`，技术报告位于 `reports/surrogate_model_optimization/report.html`。
 
 ## 结果绘图
 

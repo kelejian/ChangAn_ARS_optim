@@ -11,7 +11,8 @@ from typing import Dict, List, Mapping
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.base import RegressorMixin
+from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -24,6 +25,7 @@ from sklearn.metrics import (
 )
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from xgboost import XGBRegressor
 
 from core.injury_mapping import append_ais_from_injury_metrics, calculate_cti
 from core.schema import (
@@ -52,13 +54,15 @@ def _make_preprocessor() -> ColumnTransformer:
 
 @dataclass
 class SurrogateModelBundle:
-    """代理模型包，包含连续损伤回归器和训练分布近邻参考。
+    """代理模型包，包含目标特异回归器、不确定性参考和训练分布近邻索引。
 
     该对象是后续寻优阶段的统一推理入口，优化器只需要调用 predict 即可得到连续损伤预测、公式映射 AIS/MAIS、不确定性和分布外程度。
     """
 
     preprocessor: ColumnTransformer
-    continuous_regressor: ExtraTreesRegressor
+    target_regressors: Dict[str, List[RegressorMixin]]
+    target_weights: Dict[str, np.ndarray]
+    uncertainty_regressor: ExtraTreesRegressor
     neighbor_index: NearestNeighbors
     ood_scale: float
     target_scale: np.ndarray
@@ -71,9 +75,13 @@ class SurrogateModelBundle:
     def predict(self, df: pd.DataFrame, neighbor_k: int = 5) -> pd.DataFrame:
         """对一批候选样本输出连续损伤、公式映射 AIS/MAIS 和置信度指标。"""
         x = self.transform(df)
-        continuous_pred = self.continuous_regressor.predict(x)
-        tree_pred = np.stack([tree.predict(x) for tree in self.continuous_regressor.estimators_], axis=0)
-        # 树间离散程度用于近似代理模型不确定性；按训练集目标标准差归一化后，各损伤指标可合并比较。
+        continuous_pred = np.column_stack([
+            np.column_stack([model.predict(x) for model in self.target_regressors[target]])
+            @ self.target_weights[target]
+            for target in SURROGATE_TARGETS
+        ])
+        tree_pred = np.stack([tree.predict(x) for tree in self.uncertainty_regressor.estimators_], axis=0)
+        # 独立的随机树集合用于估计局部预测离散程度，避免目标特异回归器类型不同导致不确定性口径不一致。
         uncertainty = (tree_pred.std(axis=0) / self.target_scale).mean(axis=1)
 
         # OOD 分数衡量候选样本与训练分布的距离，数值越大表示代理模型外推风险越高。
@@ -97,22 +105,52 @@ def train_surrogate_model_bundle(
     train_df: pd.DataFrame,
     config: Dict[str, object],
 ) -> SurrogateModelBundle:
-    """训练结构化代理模型与训练分布近邻参考。"""
+    """训练目标特异代理模型、不确定性参考和训练分布近邻索引。"""
     surrogate_cfg = config.get("surrogate_model", {}) or {}
-    base_kwargs = {
-        "n_estimators": int(surrogate_cfg.get("n_estimators", 160)),
-        "min_samples_leaf": int(surrogate_cfg.get("min_samples_leaf", 2)),
-        "max_features": surrogate_cfg.get("max_features", "sqrt"),
-        "random_state": int(config.get("seed", 2026)),
-        "n_jobs": int(surrogate_cfg.get("n_jobs", -1)),
-    }
+    target_model_cfg = surrogate_cfg.get("target_models")
+    if not isinstance(target_model_cfg, Mapping):
+        raise ValueError("surrogate_model.target_models 必须为按目标字段组织的模型配置。")
+    missing_targets = [target for target in SURROGATE_TARGETS if target not in target_model_cfg]
+    if missing_targets:
+        raise ValueError(f"代理模型配置缺少目标字段: {missing_targets}")
+
+    seed = int(config.get("seed", 2026))
+    n_jobs = int(surrogate_cfg.get("n_jobs", -1))
 
     preprocessor = _make_preprocessor()
     x_train = preprocessor.fit_transform(train_df[FEATURE_COLUMNS])
 
-    # 代理模型只回归基础连续损伤响应；CTI 在推理阶段由 Amax、Dmax 和乘员体型编号派生。
-    continuous_regressor = ExtraTreesRegressor(**base_kwargs)
-    continuous_regressor.fit(x_train, train_df[SURROGATE_TARGETS])
+    # 四个基础损伤响应的量纲和可预测性差异较大，分别选择验证集表现更合适的回归器。
+    target_regressors: Dict[str, List[RegressorMixin]] = {}
+    target_weights: Dict[str, np.ndarray] = {}
+    for target in SURROGATE_TARGETS:
+        component_configs = target_model_cfg[target]
+        if not isinstance(component_configs, list) or not component_configs:
+            raise ValueError(f"{target} 的模型配置必须为非空列表。")
+        regressors: List[RegressorMixin] = []
+        weights: List[float] = []
+        for model_cfg in component_configs:
+            if not isinstance(model_cfg, Mapping):
+                raise ValueError(f"{target} 的每个模型分量必须为映射。")
+            regressor = _build_target_regressor(model_cfg, seed=seed, n_jobs=n_jobs)
+            regressor.fit(x_train, train_df[target].to_numpy(dtype=float))
+            regressors.append(regressor)
+            weights.append(float(model_cfg.get("weight", 1.0)))
+        weight_array = np.asarray(weights, dtype=float)
+        if np.any(weight_array < 0.0) or weight_array.sum() <= 0.0:
+            raise ValueError(f"{target} 的模型权重必须为非负数且总和大于零。")
+        target_regressors[target] = regressors
+        target_weights[target] = weight_array / weight_array.sum()
+
+    uncertainty_cfg = surrogate_cfg.get("uncertainty_model", {}) or {}
+    uncertainty_regressor = ExtraTreesRegressor(
+        n_estimators=int(uncertainty_cfg.get("n_estimators", 160)),
+        min_samples_leaf=int(uncertainty_cfg.get("min_samples_leaf", 2)),
+        max_features=uncertainty_cfg.get("max_features", "sqrt"),
+        random_state=seed,
+        n_jobs=n_jobs,
+    )
+    uncertainty_regressor.fit(x_train, train_df[SURROGATE_TARGETS])
     target_scale = train_df[SURROGATE_TARGETS].to_numpy(dtype=float).std(axis=0)
     target_scale = np.where(target_scale < 1e-9, 1.0, target_scale)
 
@@ -125,12 +163,63 @@ def train_surrogate_model_bundle(
     ood_scale = float(np.median(distances.mean(axis=1)))
     return SurrogateModelBundle(
         preprocessor=preprocessor,
-        continuous_regressor=continuous_regressor,
+        target_regressors=target_regressors,
+        target_weights=target_weights,
+        uncertainty_regressor=uncertainty_regressor,
         neighbor_index=neighbor_index,
         ood_scale=max(ood_scale, 1e-9),
         target_scale=target_scale,
         feature_columns=list(FEATURE_COLUMNS),
     )
+
+
+def _build_target_regressor(
+    model_cfg: Mapping[str, object],
+    seed: int,
+    n_jobs: int,
+) -> RegressorMixin:
+    """根据配置构造一个基础连续损伤指标的回归器。"""
+    model_type = str(model_cfg.get("type", ""))
+    if model_type == "extra_trees":
+        return ExtraTreesRegressor(
+            n_estimators=int(model_cfg.get("n_estimators", 600)),
+            min_samples_leaf=int(model_cfg.get("min_samples_leaf", 2)),
+            max_features=model_cfg.get("max_features", 0.7),
+            random_state=seed,
+            n_jobs=n_jobs,
+        )
+    if model_type == "random_forest":
+        return RandomForestRegressor(
+            n_estimators=int(model_cfg.get("n_estimators", 600)),
+            min_samples_leaf=int(model_cfg.get("min_samples_leaf", 2)),
+            max_features=model_cfg.get("max_features", 0.7),
+            random_state=seed,
+            n_jobs=n_jobs,
+        )
+    if model_type == "hist_gradient_boosting":
+        return HistGradientBoostingRegressor(
+            learning_rate=float(model_cfg.get("learning_rate", 0.05)),
+            max_iter=int(model_cfg.get("max_iter", 500)),
+            max_leaf_nodes=int(model_cfg.get("max_leaf_nodes", 31)),
+            min_samples_leaf=int(model_cfg.get("min_samples_leaf", 12)),
+            l2_regularization=float(model_cfg.get("l2_regularization", 0.5)),
+            random_state=seed,
+        )
+    if model_type == "xgboost":
+        return XGBRegressor(
+            n_estimators=int(model_cfg.get("n_estimators", 650)),
+            max_depth=int(model_cfg.get("max_depth", 5)),
+            learning_rate=float(model_cfg.get("learning_rate", 0.02)),
+            min_child_weight=float(model_cfg.get("min_child_weight", 8.0)),
+            subsample=float(model_cfg.get("subsample", 0.85)),
+            colsample_bytree=float(model_cfg.get("colsample_bytree", 0.85)),
+            reg_alpha=float(model_cfg.get("reg_alpha", 0.05)),
+            reg_lambda=float(model_cfg.get("reg_lambda", 5.0)),
+            objective="reg:squarederror",
+            random_state=seed,
+            n_jobs=n_jobs,
+        )
+    raise ValueError(f"不支持的代理模型类型: {model_type!r}")
 
 
 def evaluate_surrogate_model_bundle(
