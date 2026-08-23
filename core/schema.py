@@ -1,7 +1,4 @@
-"""字段约定与参数边界。
-
-本模块集中维护输入字段、代理模型特征字段、损伤目标字段和可调控制变量边界，避免不同模块各自硬编码字段名导致口径不一致。
-"""
+"""字段约定与参数边界。"""
 
 from __future__ import annotations
 
@@ -37,10 +34,12 @@ FEATURE_COLUMNS = [
     "input_angle",
     "input_overlap_signed",
     "input_swing_angle",
-    "input_type_num",
+    "input_height",
+    "input_bmi",
     "input_airbag",
     "input_kneeairbag",
-    "input_ll_level",
+    "input_ll_force",
+    "input_ll_enabled",
     "input_delta_pos",
     "input_recline_angle",
 ]
@@ -51,16 +50,20 @@ CONTINUOUS_FEATURES = [
     "input_angle",
     "input_overlap_signed",
     "input_swing_angle",
+    "input_height",
+    "input_bmi",
+    "input_ll_force_effective",
     "input_delta_pos",
     "input_recline_angle",
 ]
 
 CATEGORICAL_FEATURES = [
-    "input_type_num",
     "input_airbag",
     "input_kneeairbag",
-    "input_ll_level",
+    "input_ll_enabled",
 ]
+
+LL_FORCE_BY_LEVEL: Dict[int, float] = {1: float("inf"), 2: 3.7, 3: 5.0}
 
 SURROGATE_TARGETS = [
     "output_Amax",

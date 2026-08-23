@@ -1,6 +1,6 @@
 """数据读取、字段校验与基础派生特征构造。
 
-本模块负责把原始 Excel 表转换为内部统一数据表，并生成数据摘要和 train/val/test 划分信息。
+本模块负责把原始 Excel 表转换为内部统一数据表，并生成数据摘要和 train/test 划分信息。
 """
 
 from __future__ import annotations
@@ -13,11 +13,12 @@ from sklearn.model_selection import train_test_split
 
 import numpy as np
 
-from core.injury_mapping import calculate_cti, injury_levels_and_risk
+from core.injury_mapping import BMI_BY_TYPE, HEIGHT_BY_TYPE, calculate_cti, injury_levels_and_risk
 from core.schema import (
     AIS_TARGETS,
     CONTINUOUS_TARGETS,
     FEATURE_COLUMNS,
+    LL_FORCE_BY_LEVEL,
     OVERLAP_SIGNED_MAP,
     RAW_INPUT_COLUMNS,
     SURROGATE_TARGETS,
@@ -63,11 +64,15 @@ def prepare_dataset(raw_df: pd.DataFrame, case_id_column: str = "case_id") -> pd
     df["input_type_num"] = df["input_type_num"].astype(int)
     # 原始偏置编码只承担数据接口映射；代理模型使用带符号比例统一表达重叠幅度与主驾侧方向。
     df["input_overlap_signed"] = df["input_overlap"].map(OVERLAP_SIGNED_MAP).astype(float)
+    df["input_height"] = df["input_type_num"].map(HEIGHT_BY_TYPE).astype(float)
+    df["input_bmi"] = df["input_type_num"].map(BMI_BY_TYPE).astype(float)
+    df["input_ll_force"] = df["input_ll_level"].map(LL_FORCE_BY_LEVEL).astype(float)
+    df["input_ll_enabled"] = (df["input_ll_level"] != 1).astype(int)
     calculated_cti = calculate_cti(df["output_Amax"], df["output_Dmax"], df["input_type_num"])
     if not np.allclose(calculated_cti, df["output_CTI"].to_numpy(dtype=float), rtol=0.0, atol=1e-8):
         raise ValueError("output_CTI 与 Amax/Dmax/type_num 按参考公式计算的结果不一致。")
     df["output_CTI"] = calculated_cti
-    # AIS/MAIS 由连续损伤指标按项目参考公式统一计算，避免依赖外部表格中可能过期或口径不明的派生列。
+    # AIS/MAIS 由连续损伤指标按项目参考公式统一计算，外部表格中的派生列不参与后续评估。
     mapped = injury_levels_and_risk(df["output_HIC"], df["output_CTI"], df["output_Nij"])
     df["output_hic_AIS"] = mapped["hic_AIS"].to_numpy(dtype=int)
     df["output_cti_AIS"] = mapped["cti_AIS"].to_numpy(dtype=int)
@@ -105,6 +110,8 @@ def make_data_summary(df: pd.DataFrame, high_speed_threshold: float) -> Dict[str
         "input_delta_pos",
         "input_recline_angle",
         "input_swing_angle",
+        "input_height",
+        "input_bmi",
     ]:
         summary["input_ranges"][column] = {
             "min": float(df[column].min()),
@@ -129,36 +136,24 @@ def split_dataset(
     df: pd.DataFrame,
     seed: int,
     test_size: float,
-    val_size: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, object]]:
-    """按 MAIS 分层划分 train/val/test，并记录每个切片的 case_id。"""
-    train_val_df, test_df = train_test_split(
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, object]]:
+    """按 MAIS 分层划分 train/test，并记录两个切片的 case_id。"""
+    train_df, test_df = train_test_split(
         df,
         test_size=float(test_size),
         random_state=int(seed),
         stratify=df["output_MAIS"],
     )
-    relative_val = float(val_size) / max(1e-12, 1.0 - float(test_size))
-    train_df, val_df = train_test_split(
-        train_val_df,
-        test_size=relative_val,
-        random_state=int(seed),
-        stratify=train_val_df["output_MAIS"],
-    )
     split_info = {
         "seed": int(seed),
         "test_size": float(test_size),
-        "val_size": float(val_size),
         "train_count": int(len(train_df)),
-        "val_count": int(len(val_df)),
         "test_count": int(len(test_df)),
         "train_case_ids": [int(v) for v in train_df["case_id"].tolist()],
-        "val_case_ids": [int(v) for v in val_df["case_id"].tolist()],
         "test_case_ids": [int(v) for v in test_df["case_id"].tolist()],
     }
     return (
         train_df.reset_index(drop=True),
-        val_df.reset_index(drop=True),
         test_df.reset_index(drop=True),
         split_info,
     )

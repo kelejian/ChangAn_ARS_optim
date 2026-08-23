@@ -48,20 +48,18 @@ def run_pipeline(config: Dict[str, object], project_dir: Path, run_name: Optiona
     df = prepare_dataset(raw_df, case_id_column=case_id_column)
     data_summary = make_data_summary(df, high_speed_threshold=high_speed_threshold)
 
-    train_df, val_df, test_df, split_info = split_dataset(
+    train_df, test_df, split_info = split_dataset(
         df=df,
         seed=int(config.get("seed", 2026)),
         test_size=float(split_cfg.get("test_size", 0.2)),
-        val_size=float(split_cfg.get("val_size", 0.2)),
     )
 
     surrogate_bundle = train_surrogate_model_bundle(train_df, config)
     neighbor_k = int(opt_cfg.get("neighbor_k", 5))
     high_speed_test_df = test_df[test_df["input_velocity"] >= high_speed_threshold].reset_index(drop=True)
-    # train/val/test 指标用于判断代理模型是否具备基本可用性，其中 test 指标写入完成标志。
+    # train/test 指标用于检查拟合程度和测试表现，高速结果是 test 内部的专项切片。
     surrogate_metrics = {
         "train": evaluate_surrogate_model_bundle(surrogate_bundle, train_df, neighbor_k=neighbor_k),
-        "val": evaluate_surrogate_model_bundle(surrogate_bundle, val_df, neighbor_k=neighbor_k),
         "test": evaluate_surrogate_model_bundle(surrogate_bundle, test_df, neighbor_k=neighbor_k),
     }
     if len(high_speed_test_df) > 0:
@@ -80,20 +78,20 @@ def run_pipeline(config: Dict[str, object], project_dir: Path, run_name: Optiona
         surrogate_bundle,
         {
             "train": train_df,
-            "val": val_df,
             "test": test_df,
             "test_high_speed": high_speed_test_df,
         },
         neighbor_k=neighbor_k,
     )
 
-    # 优化仅在测试集上执行，输出 Base 与 Opt 的预测对比结果。
-    eval_results = optimize_cases(test_df, surrogate_bundle, config)
+    # 寻优器不拟合数据，因此在完整工况表上执行；候选方案仍由代理模型的 OOD 指标约束。
+    eval_results = optimize_cases(df, surrogate_bundle, config)
     summary_report, typical_cases = summarize_optimization(
         eval_results,
         high_speed_threshold=high_speed_threshold,
         typical_case_count=int(out_cfg.get("typical_case_count", 10)),
     )
+    summary_report["evaluation_scope"] = "full_dataset"
     summary_report["run_dir"] = str(output_dir)
     summary_report["completion_markers"] = _build_completion_markers(surrogate_metrics, eval_results, summary_report)
 

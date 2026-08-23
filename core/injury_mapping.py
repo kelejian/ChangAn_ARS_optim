@@ -41,6 +41,50 @@ CHEST_DEPTH_BY_TYPE = {
     12: 268.576,
 }
 
+HEIGHT_BY_TYPE = {type_num: (1.6, 1.7, 1.8)[(type_num - 1) // 4] for type_num in range(1, 13)}
+BMI_BY_TYPE = {type_num: (21.0, 23.5, 26.0, 28.5)[(type_num - 1) % 4] for type_num in range(1, 13)}
+
+
+def calculate_chest_depth(height: Iterable[float], bmi: Iterable[float]) -> np.ndarray:
+    """按参考体型节点对胸深进行双线性插值。"""
+    height_value = np.atleast_1d(np.asarray(height, dtype=float))
+    bmi_value = np.atleast_1d(np.asarray(bmi, dtype=float))
+    height_value, bmi_value = np.broadcast_arrays(height_value, bmi_value)
+    height_knots = np.asarray([1.6, 1.7, 1.8], dtype=float)
+    bmi_knots = np.asarray([21.0, 23.5, 26.0, 28.5], dtype=float)
+    if np.any((height_value < height_knots[0]) | (height_value > height_knots[-1])):
+        raise ValueError("input_height 超出参考数据范围 [1.6, 1.8] m。")
+    if np.any((bmi_value < bmi_knots[0]) | (bmi_value > bmi_knots[-1])):
+        raise ValueError("input_bmi 超出参考数据范围 [21.0, 28.5] kg/m2。")
+    depth_grid = np.asarray(
+        [[CHEST_DEPTH_BY_TYPE[row * 4 + column + 1] for column in range(4)] for row in range(3)],
+        dtype=float,
+    )
+    result = np.empty(height_value.size, dtype=float)
+    for index, (current_height, current_bmi) in enumerate(zip(height_value.flat, bmi_value.flat)):
+        depths_at_height = np.asarray(
+            [np.interp(current_bmi, bmi_knots, depth_grid[row]) for row in range(3)],
+            dtype=float,
+        )
+        result[index] = np.interp(current_height, height_knots, depths_at_height)
+    return result.reshape(height_value.shape)
+
+
+def calculate_cti_from_physical(
+    amax: Iterable[float],
+    dmax: Iterable[float],
+    height: Iterable[float],
+    bmi: Iterable[float],
+) -> np.ndarray:
+    """由 Amax、Dmax、身高和 BMI 计算 CTI。"""
+    amax_value = np.atleast_1d(np.asarray(amax, dtype=float))
+    dmax_value = np.atleast_1d(np.asarray(dmax, dtype=float))
+    height_value = np.atleast_1d(np.asarray(height, dtype=float))
+    bmi_value = np.atleast_1d(np.asarray(bmi, dtype=float))
+    mass = height_value**2 * bmi_value
+    chest_depth = calculate_chest_depth(height_value, bmi_value)
+    return amax_value / (90.0 * mass / 77.0) + dmax_value / (chest_depth / 255.594 * 103.0)
+
 
 def calculate_cti(
     amax: Iterable[float],

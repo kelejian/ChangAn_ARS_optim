@@ -10,7 +10,7 @@ from typing import Dict, List, Mapping
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.base import RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import (
@@ -25,9 +25,10 @@ from sklearn.metrics import (
 )
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.svm import SVR
 from xgboost import XGBRegressor
 
-from core.injury_mapping import append_ais_from_injury_metrics, calculate_cti
+from core.injury_mapping import append_ais_from_injury_metrics, calculate_chest_depth, calculate_cti_from_physical
 from core.schema import (
     AIS_TARGETS,
     CATEGORICAL_FEATURES,
@@ -38,12 +39,37 @@ from core.schema import (
 )
 
 
-def _make_preprocessor() -> ColumnTransformer:
+COMPACT_DERIVED_FEATURES = [
+    "input_overlap_abs",
+    "impact_angle_abs",
+    "velocity_sq",
+    "velocity_overlap_exposure",
+    "angle_overlap_coupling",
+    "velocity_airbag_coupling",
+    "velocity_ll_coupling",
+    "occupant_mass",
+    "occupant_chest_depth",
+]
+
+EXPANDED_DERIVED_FEATURES = COMPACT_DERIVED_FEATURES + [
+    "swing_angle_abs",
+    "delta_pos_sq",
+    "recline_angle_sq",
+    "velocity_angle_exposure",
+    "velocity_swing_exposure",
+    "velocity_kneeairbag_coupling",
+    "velocity_recline_coupling",
+    "delta_recline_coupling",
+]
+
+
+def _make_preprocessor(feature_engineering: str) -> ColumnTransformer:
     """构造结构化特征预处理器。"""
+    derived_features = _derived_feature_names(feature_engineering)
     return ColumnTransformer(
         transformers=[
             # 连续变量标准化后进入树模型，便于近邻距离指标具有统一尺度。
-            ("continuous", StandardScaler(), CONTINUOUS_FEATURES),
+            ("continuous", StandardScaler(), CONTINUOUS_FEATURES + derived_features),
             # 类别变量使用独热编码；handle_unknown=ignore 允许后续推理时出现训练集中未覆盖的类别。
             ("categorical", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
         ],
@@ -62,15 +88,19 @@ class SurrogateModelBundle:
     preprocessor: ColumnTransformer
     target_regressors: Dict[str, List[RegressorMixin]]
     target_weights: Dict[str, np.ndarray]
+    prediction_scale: np.ndarray
+    prediction_offset: np.ndarray
     uncertainty_regressor: ExtraTreesRegressor
     neighbor_index: NearestNeighbors
     ood_scale: float
     target_scale: np.ndarray
     feature_columns: List[str]
+    feature_engineering: str
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
         """将输入表转换为代理模型特征矩阵。"""
-        return self.preprocessor.transform(df[self.feature_columns])
+        feature_frame = _engineer_features(df[self.feature_columns], self.feature_engineering)
+        return self.preprocessor.transform(feature_frame)
 
     def predict(self, df: pd.DataFrame, neighbor_k: int = 5) -> pd.DataFrame:
         """对一批候选样本输出连续损伤、公式映射 AIS/MAIS 和置信度指标。"""
@@ -80,8 +110,12 @@ class SurrogateModelBundle:
             @ self.target_weights[target]
             for target in SURROGATE_TARGETS
         ])
+        # 目标级仿射校准用于调整集成预测的整体尺度和偏移，CTI 与 AIS 仍由校准后的基础响应按参考公式派生。
+        continuous_pred = continuous_pred * self.prediction_scale + self.prediction_offset
+        # 四项基础损伤响应的物理定义均为非负量。
+        continuous_pred = np.maximum(continuous_pred, 0.0)
         tree_pred = np.stack([tree.predict(x) for tree in self.uncertainty_regressor.estimators_], axis=0)
-        # 独立的随机树集合用于估计局部预测离散程度，避免目标特异回归器类型不同导致不确定性口径不一致。
+        # 独立的随机树集合用于统一估计四个目标的局部预测离散程度。
         uncertainty = (tree_pred.std(axis=0) / self.target_scale).mean(axis=1)
 
         # OOD 分数衡量候选样本与训练分布的距离，数值越大表示代理模型外推风险越高。
@@ -94,7 +128,9 @@ class SurrogateModelBundle:
             columns=[name.replace("output_", "pred_") for name in SURROGATE_TARGETS],
             index=df.index,
         )
-        output["pred_CTI"] = calculate_cti(output["pred_Amax"], output["pred_Dmax"], df["input_type_num"])
+        output["pred_CTI"] = calculate_cti_from_physical(
+            output["pred_Amax"], output["pred_Dmax"], df["input_height"], df["input_bmi"]
+        )
         output = append_ais_from_injury_metrics(output)
         output["pred_uncertainty"] = uncertainty
         output["pred_ood_score"] = ood_score
@@ -117,10 +153,12 @@ def train_surrogate_model_bundle(
     seed = int(config.get("seed", 2026))
     n_jobs = int(surrogate_cfg.get("n_jobs", -1))
 
-    preprocessor = _make_preprocessor()
-    x_train = preprocessor.fit_transform(train_df[FEATURE_COLUMNS])
+    feature_engineering = str(surrogate_cfg.get("feature_engineering", "base"))
+    preprocessor = _make_preprocessor(feature_engineering)
+    train_features = _engineer_features(train_df[FEATURE_COLUMNS], feature_engineering)
+    x_train = preprocessor.fit_transform(train_features)
 
-    # 四个基础损伤响应的量纲和可预测性差异较大，分别选择验证集表现更合适的回归器。
+    # 四个基础损伤响应的量纲和可预测性差异较大，分别使用实验对比后确定的回归器。
     target_regressors: Dict[str, List[RegressorMixin]] = {}
     target_weights: Dict[str, np.ndarray] = {}
     for target in SURROGATE_TARGETS:
@@ -141,6 +179,16 @@ def train_surrogate_model_bundle(
             raise ValueError(f"{target} 的模型权重必须为非负数且总和大于零。")
         target_regressors[target] = regressors
         target_weights[target] = weight_array / weight_array.sum()
+
+    calibration_cfg = surrogate_cfg.get("prediction_calibration", {}) or {}
+    prediction_scale = np.asarray(
+        [float((calibration_cfg.get(target, {}) or {}).get("scale", 1.0)) for target in SURROGATE_TARGETS],
+        dtype=float,
+    )
+    prediction_offset = np.asarray(
+        [float((calibration_cfg.get(target, {}) or {}).get("offset", 0.0)) for target in SURROGATE_TARGETS],
+        dtype=float,
+    )
 
     uncertainty_cfg = surrogate_cfg.get("uncertainty_model", {}) or {}
     uncertainty_regressor = ExtraTreesRegressor(
@@ -165,12 +213,69 @@ def train_surrogate_model_bundle(
         preprocessor=preprocessor,
         target_regressors=target_regressors,
         target_weights=target_weights,
+        prediction_scale=prediction_scale,
+        prediction_offset=prediction_offset,
         uncertainty_regressor=uncertainty_regressor,
         neighbor_index=neighbor_index,
         ood_scale=max(ood_scale, 1e-9),
         target_scale=target_scale,
         feature_columns=list(FEATURE_COLUMNS),
+        feature_engineering=feature_engineering,
     )
+
+
+def _derived_feature_names(feature_engineering: str) -> List[str]:
+    """返回指定内部特征工程方案对应的派生连续字段。"""
+    if feature_engineering == "base":
+        return []
+    if feature_engineering == "compact_interactions":
+        return list(COMPACT_DERIVED_FEATURES)
+    if feature_engineering == "expanded_interactions":
+        return list(EXPANDED_DERIVED_FEATURES)
+    raise ValueError(f"不支持的内部特征工程方案: {feature_engineering!r}")
+
+
+def _engineer_features(df: pd.DataFrame, feature_engineering: str) -> pd.DataFrame:
+    """由既有输入字段计算内部派生特征，保持外部数据接口不变。"""
+    result = df.copy()
+    # 未启用限力时以有限区间中点填充数值特征，启用状态由独立类别特征表达，避免无穷值进入预处理器。
+    result["input_ll_force_effective"] = np.where(
+        result["input_ll_enabled"].astype(int) == 1,
+        result["input_ll_force"].astype(float),
+        4.35,
+    )
+    derived_features = _derived_feature_names(feature_engineering)
+    if not derived_features:
+        return result
+
+    velocity = result["input_velocity"].astype(float)
+    angle = result["input_angle"].astype(float)
+    overlap = result["input_overlap_signed"].astype(float)
+    swing = result["input_swing_angle"].astype(float)
+    delta_pos = result["input_delta_pos"].astype(float)
+    recline = result["input_recline_angle"].astype(float)
+    result["input_overlap_abs"] = overlap.abs()
+    result["impact_angle_abs"] = angle.abs()
+    result["velocity_sq"] = velocity.pow(2)
+    result["velocity_overlap_exposure"] = velocity * overlap.abs()
+    result["angle_overlap_coupling"] = angle * overlap
+    result["velocity_airbag_coupling"] = velocity * result["input_airbag"].astype(float)
+    result["velocity_ll_coupling"] = (
+        velocity * result["input_ll_force_effective"] * result["input_ll_enabled"].astype(float)
+    )
+    result["occupant_mass"] = result["input_height"].astype(float).pow(2) * result["input_bmi"].astype(float)
+    result["occupant_chest_depth"] = calculate_chest_depth(result["input_height"], result["input_bmi"])
+
+    if feature_engineering == "expanded_interactions":
+        result["swing_angle_abs"] = swing.abs()
+        result["delta_pos_sq"] = delta_pos.pow(2)
+        result["recline_angle_sq"] = recline.pow(2)
+        result["velocity_angle_exposure"] = velocity * angle.abs()
+        result["velocity_swing_exposure"] = velocity * swing.abs()
+        result["velocity_kneeairbag_coupling"] = velocity * result["input_kneeairbag"].astype(float)
+        result["velocity_recline_coupling"] = velocity * recline
+        result["delta_recline_coupling"] = delta_pos * recline
+    return result
 
 
 def _build_target_regressor(
@@ -180,6 +285,16 @@ def _build_target_regressor(
 ) -> RegressorMixin:
     """根据配置构造一个基础连续损伤指标的回归器。"""
     model_type = str(model_cfg.get("type", ""))
+    if model_type.endswith("_log"):
+        base_config = dict(model_cfg)
+        base_config["type"] = model_type.removesuffix("_log")
+        base_regressor = _build_target_regressor(base_config, seed=seed, n_jobs=n_jobs)
+        return TransformedTargetRegressor(
+            regressor=base_regressor,
+            func=np.log1p,
+            inverse_func=np.expm1,
+            check_inverse=False,
+        )
     if model_type == "extra_trees":
         return ExtraTreesRegressor(
             n_estimators=int(model_cfg.get("n_estimators", 600)),
@@ -204,6 +319,15 @@ def _build_target_regressor(
             min_samples_leaf=int(model_cfg.get("min_samples_leaf", 12)),
             l2_regularization=float(model_cfg.get("l2_regularization", 0.5)),
             random_state=seed,
+        )
+    if model_type == "svr":
+        return TransformedTargetRegressor(
+            regressor=SVR(
+                C=float(model_cfg.get("C", 3.0)),
+                gamma=model_cfg.get("gamma", "scale"),
+                epsilon=float(model_cfg.get("epsilon", 0.05)),
+            ),
+            transformer=StandardScaler(),
         )
     if model_type == "xgboost":
         return XGBRegressor(
@@ -289,6 +413,8 @@ def build_surrogate_prediction_table(
         "input_overlap_signed",
         "input_swing_angle",
         "input_type_num",
+        "input_height",
+        "input_bmi",
     ]
     for data_scope, df in data_slices.items():
         if len(df) == 0:

@@ -1,6 +1,6 @@
 """分层逐点参数寻优与结果汇总。
 
-本模块对每个测试样本单独生成候选约束系统参数，用代理模型评估候选风险，并选择综合评分最低的候选作为推荐方案。
+本模块对每个待评估工况单独生成候选约束系统参数，用代理模型评估候选风险，并选择综合评分最低的候选作为推荐方案。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Tuple
 import numpy as np
 import pandas as pd
 
-from core.schema import CONTROL_COLUMNS, ControlBounds, FEATURE_COLUMNS
+from core.schema import CONTROL_COLUMNS, LL_FORCE_BY_LEVEL, ControlBounds, FEATURE_COLUMNS
 from core.surrogate_model import SurrogateModelBundle
 
 
@@ -131,6 +131,8 @@ def _generate_candidates(
                         "input_airbag": int(airbag),
                         "input_kneeairbag": int(kneeairbag),
                         "input_ll_level": int(ll_level),
+                        "input_ll_force": float(LL_FORCE_BY_LEVEL[int(ll_level)]),
+                        "input_ll_enabled": int(ll_level != 1),
                         "input_delta_pos": float(delta_pos),
                         "input_recline_angle": float(recline_angle),
                     }
