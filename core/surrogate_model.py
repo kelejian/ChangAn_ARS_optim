@@ -35,6 +35,7 @@ from core.schema import (
     CONTINUOUS_FEATURES,
     CONTINUOUS_TARGETS,
     FEATURE_COLUMNS,
+    LL_FORCE_REFERENCE_KN,
     SURROGATE_TARGETS,
 )
 
@@ -238,11 +239,15 @@ def _derived_feature_names(feature_engineering: str) -> List[str]:
 def _engineer_features(df: pd.DataFrame, feature_engineering: str) -> pd.DataFrame:
     """由既有输入字段计算内部派生特征，保持外部数据接口不变。"""
     result = df.copy()
-    # 未启用限力时以有限区间中点填充数值特征，启用状态由独立类别特征表达，避免无穷值进入预处理器。
-    result["input_ll_force_effective"] = np.where(
-        result["input_ll_enabled"].astype(int) == 1,
-        result["input_ll_force"].astype(float),
-        4.35,
+    ll_force = result["input_ll_force"].astype(float)
+    valid_ll_force = (np.isfinite(ll_force) & (ll_force > 0.0)) | np.isposinf(ll_force)
+    if not bool(np.all(valid_ll_force)):
+        raise ValueError("安全带限力必须为正数或 inf。")
+    # 限力作用采用参考限力值与输入限力值之比，使不限力对应 F_LL→∞ 时的连续极限 0。
+    result["input_ll_effect"] = np.where(
+        np.isfinite(ll_force),
+        float(LL_FORCE_REFERENCE_KN) / ll_force,
+        0.0,
     )
     derived_features = _derived_feature_names(feature_engineering)
     if not derived_features:
@@ -260,9 +265,7 @@ def _engineer_features(df: pd.DataFrame, feature_engineering: str) -> pd.DataFra
     result["velocity_overlap_exposure"] = velocity * overlap.abs()
     result["angle_overlap_coupling"] = angle * overlap
     result["velocity_airbag_coupling"] = velocity * result["input_airbag"].astype(float)
-    result["velocity_ll_coupling"] = (
-        velocity * result["input_ll_force_effective"] * result["input_ll_enabled"].astype(float)
-    )
+    result["velocity_ll_coupling"] = velocity * result["input_ll_effect"]
     result["occupant_mass"] = result["input_height"].astype(float).pow(2) * result["input_bmi"].astype(float)
     result["occupant_chest_depth"] = calculate_chest_depth(result["input_height"], result["input_bmi"])
 

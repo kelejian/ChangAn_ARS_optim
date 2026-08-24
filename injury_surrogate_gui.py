@@ -51,18 +51,18 @@ def resolve_model_path(project_dir: Path, requested_path: str | None) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime).resolve()
 
 
-def parse_load_limiter(value: object) -> tuple[float, int]:
-    """解析安全带限力值及其启用状态。"""
+def parse_load_limiter(value: object) -> float:
+    """解析安全带限力值，inf 表示不限力。"""
     text = str(value).strip().lower()
     if text in {"inf", "+inf", "infinity", "+infinity"}:
-        return float("inf"), 0
+        return float("inf")
     try:
         force = float(text)
     except ValueError as error:
         raise ValueError("安全带限力请输入 3.7–5.0 kN 范围内的数值，未启用限力时输入 inf。") from error
     if not 3.7 <= force <= 5.0:
         raise ValueError("安全带限力应在 3.7–5.0 kN 范围内，未启用限力时输入 inf。")
-    return force, 1
+    return force
 
 
 def build_model_input(values: Mapping[str, object]) -> pd.DataFrame:
@@ -96,7 +96,7 @@ def build_model_input(values: Mapping[str, object]) -> pd.DataFrame:
     except KeyError as error:
         raise ValueError(f"未识别的约束系统状态: {error.args[0]}") from error
 
-    limiter_force, limiter_enabled = parse_load_limiter(values["load_limiter"])
+    limiter_force = parse_load_limiter(values["load_limiter"])
     return pd.DataFrame(
         [{
             "input_velocity": velocity,
@@ -108,7 +108,6 @@ def build_model_input(values: Mapping[str, object]) -> pd.DataFrame:
             "input_airbag": airbag,
             "input_kneeairbag": knee_airbag,
             "input_ll_force": limiter_force,
-            "input_ll_enabled": limiter_enabled,
             "input_delta_pos": seat_position,
             "input_recline_angle": math.radians(recline_angle_deg),
         }]

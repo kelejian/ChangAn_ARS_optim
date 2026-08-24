@@ -67,7 +67,6 @@ def prepare_dataset(raw_df: pd.DataFrame, case_id_column: str = "case_id") -> pd
     df["input_height"] = df["input_type_num"].map(HEIGHT_BY_TYPE).astype(float)
     df["input_bmi"] = df["input_type_num"].map(BMI_BY_TYPE).astype(float)
     df["input_ll_force"] = df["input_ll_level"].map(LL_FORCE_BY_LEVEL).astype(float)
-    df["input_ll_enabled"] = (df["input_ll_level"] != 1).astype(int)
     calculated_cti = calculate_cti(df["output_Amax"], df["output_Dmax"], df["input_type_num"])
     if not np.allclose(calculated_cti, df["output_CTI"].to_numpy(dtype=float), rtol=0.0, atol=1e-8):
         raise ValueError("output_CTI 与 Amax/Dmax/type_num 按参考公式计算的结果不一致。")

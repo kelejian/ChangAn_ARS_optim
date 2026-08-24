@@ -132,7 +132,6 @@ def _generate_candidates(
                         "input_kneeairbag": int(kneeairbag),
                         "input_ll_level": int(ll_level),
                         "input_ll_force": float(LL_FORCE_BY_LEVEL[int(ll_level)]),
-                        "input_ll_enabled": int(ll_level != 1),
                         "input_delta_pos": float(delta_pos),
                         "input_recline_angle": float(recline_angle),
                     }

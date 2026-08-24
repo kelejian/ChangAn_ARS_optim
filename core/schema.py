@@ -39,7 +39,6 @@ FEATURE_COLUMNS = [
     "input_airbag",
     "input_kneeairbag",
     "input_ll_force",
-    "input_ll_enabled",
     "input_delta_pos",
     "input_recline_angle",
 ]
@@ -52,7 +51,7 @@ CONTINUOUS_FEATURES = [
     "input_swing_angle",
     "input_height",
     "input_bmi",
-    "input_ll_force_effective",
+    "input_ll_effect",
     "input_delta_pos",
     "input_recline_angle",
 ]
@@ -60,10 +59,10 @@ CONTINUOUS_FEATURES = [
 CATEGORICAL_FEATURES = [
     "input_airbag",
     "input_kneeairbag",
-    "input_ll_enabled",
 ]
 
 LL_FORCE_BY_LEVEL: Dict[int, float] = {1: float("inf"), 2: 3.7, 3: 5.0}
+LL_FORCE_REFERENCE_KN: float = 5.0
 
 SURROGATE_TARGETS = [
     "output_Amax",

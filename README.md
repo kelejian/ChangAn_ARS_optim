@@ -50,9 +50,9 @@ python run_pipeline.py --config configs/default_config.yaml
 
 ## 代理模型设计
 
-代理模型使用带符号连续比例 `input_overlap_signed` 表示碰撞偏置大小及主驾侧方向，原始 `input_overlap` 编码仅用于将数据转换为带符号比例，并保留在输出结果中供核对。乘员身高、BMI 和启用状态下的安全带限力值作为连续特征；安全带限力启用状态作为状态特征。乘员质量由身高和 BMI 计算，CTI 所需胸深根据参考体型节点进行双线性插值。数据按 MAIS 分层划分为训练集和测试集，默认比例为 8:2。四个连续损伤指标分别配置回归模型：`Amax` 融合 XGBoost、径向基支持向量回归和随机森林；`Dmax`、`HIC` 同时使用原始目标值和对数变换目标值训练梯度提升模型；`Nij` 组合直方梯度提升与 XGBoost。每个指标最多保留四个回归模型，并通过线性校准调整整体预测尺度与偏移。四项基础损伤响应的预测值均限制为非负数。
+代理模型使用带符号连续比例 `input_overlap_signed` 表示碰撞偏置大小及主驾侧方向，原始 `input_overlap` 编码仅用于将数据转换为带符号比例，并保留在输出结果中供核对。乘员身高、BMI 和安全带限力值作为连续物理参数；不限力输入 `inf`，模型内部以参考限力值与输入限力值之比表示限力作用，使不限力对应连续极限 0。乘员质量由身高和 BMI 计算，CTI 所需胸深根据参考体型节点进行双线性插值。数据按 MAIS 分层划分为训练集和测试集，默认比例为 8:2。四个连续损伤指标分别配置回归模型：`Amax` 融合 XGBoost、径向基支持向量回归和随机森林；`Dmax`、`HIC` 同时使用原始目标值和对数变换目标值训练梯度提升模型；`Nij` 组合直方梯度提升与 XGBoost。每个指标最多保留四个回归模型，并通过线性校准调整整体预测尺度与偏移。四项基础损伤响应的预测值均限制为非负数。
 
-截止2026-08-23，当前默认配置在 500 条测试工况上的 Amax、Dmax、HIC、Nij 和 CTI R² 分别为 0.5837、0.6503、0.6827、0.4974 和 0.6526；CTI AIS、HIC AIS、Nij AIS、MAIS 和 AIS3+ 准确率分别为 84.0%、53.6%、80.4%、50.8% 和 80.8%。对应模型和完整评估结果保存在 `outputs/run_20260823_continuous_surrogate_final`。
+截止2026-08-24，当前默认配置在 500 条测试工况上的 Amax、Dmax、HIC、Nij 和 CTI R² 分别为 0.5811、0.6470、0.6822、0.4985 和 0.6476；CTI AIS、HIC AIS、Nij AIS、MAIS 和 AIS3+ 准确率分别为 83.8%、51.8%、80.8%、50.2% 和 80.6%。对应模型和完整评估结果保存在 `outputs/run_20260824_ll_continuous_final`。
 
 运行以下命令可复现基础模型比较和误差分析：
 
@@ -61,7 +61,7 @@ python -m experiments.run_surrogate_iterations
 python -m experiments.diagnose_surrogate_limits
 ```
 
-`experiments/surrogate_model_optimization.ipynb` 和 `reports/surrogate_model_optimization/report.html` 保存了 2026-08-04 的实验结果。当前正式结果见 `outputs/run_20260823_continuous_surrogate_final` 中的 `split_info.yaml`、`surrogate_model_metrics.yaml` 和 `summary_report.yaml`。
+`experiments/surrogate_model_optimization.ipynb` 和 `reports/surrogate_model_optimization/report.html` 保存了 2026-08-04 的实验结果。当前正式结果见 `outputs/run_20260824_ll_continuous_final` 中的 `split_info.yaml`、`surrogate_model_metrics.yaml` 和 `summary_report.yaml`。
 
 ## 损伤预测可视化界面
 

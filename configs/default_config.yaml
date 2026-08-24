@@ -24,12 +24,12 @@ surrogate_model:
     # Amax 组合径向基支持向量回归、梯度提升和随机森林。
     output_Amax:
       - type: "svr"
-        weight: 0.3846880365
+        weight: 0.2794969859
         C: 3.0
         gamma: "scale"
         epsilon: 0.05
       - type: "xgboost"
-        weight: 0.0243002229
+        weight: 0.3790003499
         n_estimators: 500
         max_depth: 6
         learning_rate: 0.0187455674
@@ -38,42 +38,27 @@ surrogate_model:
         colsample_bytree: 0.7225023111
         reg_alpha: 0.0022657207
         reg_lambda: 0.8909975043
-      - type: "xgboost"
-        weight: 0.3979931560
-        n_estimators: 600
-        max_depth: 7
-        learning_rate: 0.0152518391
-        min_child_weight: 2.0248594851
-        subsample: 0.7061068898
-        colsample_bytree: 0.9753590297
-        reg_alpha: 0.0122120261
-        reg_lambda: 0.5452773548
       - type: "random_forest"
-        weight: 0.1930185847
-        n_estimators: 900
+        weight: 0.1707527363
+        n_estimators: 800
         min_samples_leaf: 6
-        max_features: 0.9169474665
+        max_features: 0.8521247447
+      - type: "random_forest"
+        weight: 0.1707499279
+        n_estimators: 800
+        min_samples_leaf: 6
+        max_features: 0.8527314719
     # Dmax 组合常规尺度和对数目标尺度的梯度提升模型。
     output_Dmax:
-      - type: "xgboost_log"
-        weight: 0.3314094883
-        n_estimators: 750
-        max_depth: 6
-        learning_rate: 0.0272230330
-        min_child_weight: 15.4875382520
-        subsample: 0.7807926777
-        colsample_bytree: 0.7632212806
-        reg_alpha: 0.0047033231
-        reg_lambda: 6.1580290445
       - type: "hist_gradient_boosting"
-        weight: 0.1986043305
+        weight: 0.1523592438
         learning_rate: 0.0395165094
         max_iter: 300
         max_leaf_nodes: 80
         min_samples_leaf: 12
         l2_regularization: 0.0941487902
       - type: "xgboost_log"
-        weight: 0.2985306606
+        weight: 0.2977780378
         n_estimators: 800
         max_depth: 7
         learning_rate: 0.0144685923
@@ -82,24 +67,37 @@ surrogate_model:
         colsample_bytree: 0.9419213052
         reg_alpha: 0.0010217458
         reg_lambda: 4.8398084838
-      - type: "hist_gradient_boosting"
-        weight: 0.1714555206
-        learning_rate: 0.0893826766
-        max_iter: 800
-        max_leaf_nodes: 50
-        min_samples_leaf: 27
-        l2_regularization: 0.3192871236
+      - type: "xgboost"
+        weight: 0.3092537070
+        n_estimators: 500
+        max_depth: 6
+        learning_rate: 0.0278969273
+        min_child_weight: 8.0256437456
+        subsample: 0.7820972600
+        colsample_bytree: 0.8821731116
+        reg_alpha: 0.0629337577
+        reg_lambda: 0.5131306283
+      - type: "xgboost"
+        weight: 0.2406090115
+        n_estimators: 500
+        max_depth: 6
+        learning_rate: 0.0269558305
+        min_child_weight: 15.1748818066
+        subsample: 0.7007174714
+        colsample_bytree: 0.9926839396
+        reg_alpha: 0.0680196708
+        reg_lambda: 0.5984641438
     # HIC 组合常规尺度和对数目标尺度的提升模型，以改善高值区拟合。
     output_HIC:
       - type: "hist_gradient_boosting_log"
-        weight: 0.3675285678
+        weight: 0.4615284346
         learning_rate: 0.0797482927
         max_iter: 300
         max_leaf_nodes: 79
         min_samples_leaf: 8
         l2_regularization: 5.4479248436
       - type: "xgboost"
-        weight: 0.3730069547
+        weight: 0.1354842923
         n_estimators: 700
         max_depth: 5
         learning_rate: 0.0248390160
@@ -109,59 +107,66 @@ surrogate_model:
         reg_alpha: 0.0018106333
         reg_lambda: 1.0474572094
       - type: "hist_gradient_boosting_log"
-        weight: 0.2594644775
+        weight: 0.0678244736
         learning_rate: 0.0364619008
         max_iter: 500
         max_leaf_nodes: 60
         min_samples_leaf: 20
         l2_regularization: 0.7742368667
+      - type: "xgboost"
+        weight: 0.3351627994
+        n_estimators: 700
+        max_depth: 4
+        learning_rate: 0.0688841469
+        min_child_weight: 15.9280096353
+        subsample: 0.8451273322
+        colsample_bytree: 0.9067587287
+        reg_alpha: 0.1831422080
+        reg_lambda: 7.0153392262
     # Nij 组合常规尺度和对数目标尺度的梯度提升模型。
     output_Nij:
       - type: "hist_gradient_boosting_log"
-        weight: 0.4103772232
-        learning_rate: 0.0425739270
-        max_iter: 350
-        max_leaf_nodes: 44
-        min_samples_leaf: 7
-        l2_regularization: 0.8983694650
-      - type: "hist_gradient_boosting_log"
-        weight: 0.2726514108
+        weight: 0.4023344757
         learning_rate: 0.0333283328
         max_iter: 450
         max_leaf_nodes: 80
         min_samples_leaf: 27
         l2_regularization: 1.0431053467
-      - type: "xgboost_log"
-        weight: 0.2811014055
-        n_estimators: 800
-        max_depth: 7
-        learning_rate: 0.0321012024
-        min_child_weight: 5.9891385076
-        subsample: 0.8660521977
-        colsample_bytree: 0.8651616789
-        reg_alpha: 0.0002074273
-        reg_lambda: 1.3341673684
       - type: "hist_gradient_boosting"
-        weight: 0.0358699605
+        weight: 0.0897626014
         learning_rate: 0.0339789053
         max_iter: 550
         max_leaf_nodes: 34
         min_samples_leaf: 11
         l2_regularization: 3.5084395770
+      - type: "hist_gradient_boosting_log"
+        weight: 0.3934683507
+        learning_rate: 0.0487367879
+        max_iter: 300
+        max_leaf_nodes: 49
+        min_samples_leaf: 7
+        l2_regularization: 0.0621966796
+      - type: "hist_gradient_boosting_log"
+        weight: 0.1144345723
+        learning_rate: 0.0874494232
+        max_iter: 300
+        max_leaf_nodes: 55
+        min_samples_leaf: 6
+        l2_regularization: 0.3658754661
   # 幅度受限的目标级线性校准用于调整集成预测的尺度与偏移。
   prediction_calibration:
     output_Amax:
-      scale: 1.0510273919
-      offset: -0.7529201734
+      scale: 1.0554311364
+      offset: -1.3166081444
     output_Dmax:
-      scale: 1.1045643579
-      offset: -1.4533959407
+      scale: 1.1060458255
+      offset: -1.4119182521
     output_HIC:
-      scale: 1.1514239826
-      offset: -62.6236339313
+      scale: 1.1542433323
+      offset: -69.4517209752
     output_Nij:
-      scale: 1.0886096583
-      offset: -0.0766494810
+      scale: 1.0482818226
+      offset: -0.0311580532
   # 随机树集合只用于统一估计四个目标的局部预测离散程度，不参与最终点预测。
   uncertainty_model:
     n_estimators: 160
